@@ -2,6 +2,10 @@
 // Build OpenCV for VC 17 (Visual Studio 2022): https://www.gollahalli.com/blog/build-opencv-with-visual-studio-and-cmake-gui/#step-4-set-the-source-and-build-directories
 // Remember to check option build opencv_world in CMake before you generate the solution.
 
+// TODO: Parameterize output folders (lossless frames and videos)
+// TODO: Use I/O thread
+// TODO: Save videos at interval
+
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <memory>
@@ -22,6 +26,8 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 
 void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualFPS);
 
+void setImgFileString(const int numFrames);
+
 /* Program arguments :
 	1. camID (int): Camera ID (video capture device) of the machine.
 	2. frameHeight (int): a height of each video frame
@@ -34,14 +40,26 @@ void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualF
 	5. numSeconds: duration of video capturing in second unit.
 	6. I/O buffer size: the number of video frames buffered before writing to storage. 
 	    If your system is highly affected by I/O and cannot keep frame interval as precise
-		as you need because of I/O, you may increase this size high enough to cover all
-		frames that will be captured during the time interval. Then, set 'saveOnce' to true.
+		  as you need because of I/O, you may increase this size high enough to cover all
+		  frames that will be captured during the time interval. Then, set 'saveOnce' to true.
+	    Note: the I/O itself may not time consuming per se, but encoding an output image may
+		  be a culprit if you get an I/O performance issue.
 	. dryRun (boolean): if true, captureed video frames will not be saved to a disk. 
 	    This helps investigate performance issues, especially those involving I/O.
 	. saveVideo (boolean):
 	. saveLosslessFrames (boolean):
 	. saveOnce (boolean):
 */
+
+string series_name = "demo_";
+string img_out_folder = "C:/TestingGround/VideoCapture/Images";
+string imgFileFormatStr;
+string video_out_folder = "C:/TestingGround/VideoCapture/Videos";
+int ioBufferSize = 3000;
+int bufferEndIndex = -1;
+int bufferStartIndex = -1;
+int maxBufferIndexLead = 0;
+
 
 int main()
 {
@@ -53,7 +71,7 @@ int main()
 	cout << "Target frame rate = " << targetFPS << "\n";
 	shrptr_VideoCapture cap = initVideoCapture(camID, frameHeight, frameWidth, targetFPS);	
 	
-	const int numSeconds = 10;
+	const int numSeconds = 3;
 	int numFrames = (int)(targetFPS * numSeconds);
 	cap->set(cv::CAP_PROP_FPS, targetFPS);
 	double actualFPS = cap->get(cv::CAP_PROP_FPS);
@@ -156,6 +174,25 @@ void reportTimeStamps(vector<double>& grabTime, vector<double>& retrieveTime) {
 }
 
 
+void setImgFileString(const int numFrames) {
+	if (numFrames < 1000) imgFileFormatStr = "{}/{}{:03d}.png";
+	else if (numFrames < 10000) imgFileFormatStr = "{}/{}{:04d}.png";
+	else if (numFrames < 100000) imgFileFormatStr = "{}/{}{:05d}.png";
+	else if (numFrames < 1000000) imgFileFormatStr = "{}/{}{:06d}.png";
+	else imgFileFormatStr = "{}/{}{:07d}.png";
+}
+
+void exportAllImages(vector<Mat>& frames) {
+	const int nFrames = (int) frames.size();
+	printf("Saving all %d images.\n", nFrames);	
+
+	for (int i = 0; i < nFrames; ++i) {
+		string img_path = fmt::format(imgFileFormatStr, img_out_folder, series_name, i);
+		imwrite(img_path, frames.at(i));
+	}
+}
+
+
 void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSec) {
 	int width = frames.at(0).cols;
 	int height = frames.at(0).rows;
@@ -204,6 +241,7 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 
 	reportTimeStamps(grabTimeStamps, retrieveTimeStamps);
 
+	exportAllImages(frames);
 	//exportVideo(frames, numFrames, framesPerSec);
 
 	double previousTimeStamp = 0;
