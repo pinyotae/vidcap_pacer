@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+/FramePacer/FramePacer/x64
+/FramePacer/x64
+/FramePacer/.vs/FramePacer/v17/ipch/AutoPCH
+/FramePacer/.vs/FramePacer
