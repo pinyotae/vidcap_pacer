@@ -10,6 +10,9 @@
 #include <opencv2/opencv.hpp>
 #include <memory>
 #include <omp.h>
+#include <atomic>
+#include <mutex>
+#include <thread>
 #include <fmt/core.h>
 #include <windows.h>
 
@@ -26,7 +29,7 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 
 void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualFPS);
 
-void setImgFileString(const int numFrames);
+void setImgFileNameFormatString(const int numFrames);
 
 /* Program arguments :
 	1. camID (int): Camera ID (video capture device) of the machine.
@@ -56,9 +59,13 @@ string img_out_folder = "C:/TestingGround/VideoCapture/Images";
 string imgFileFormatStr;
 string video_out_folder = "C:/TestingGround/VideoCapture/Videos";
 int ioBufferSize = 3000;
-int bufferEndIndex = -1;
-int bufferStartIndex = -1;
+std::atomic<int> bufferEndIndex(-1);
+std::atomic<int> bufferStartIndex(-1);
 int maxBufferIndexLead = 0;
+std::mutex writeMutex;
+
+std::atomic<int> grabCount(0);
+std::atomic<int> writeCount(0);
 
 
 int main()
@@ -69,10 +76,11 @@ int main()
 	const int frameWidth = 640;
 	const double targetFPS = 15;
 	cout << "Target frame rate = " << targetFPS << "\n";
-	shrptr_VideoCapture cap = initVideoCapture(camID, frameHeight, frameWidth, targetFPS);	
+	shrptr_VideoCapture cap = initVideoCapture(camID, frameHeight, frameWidth, targetFPS);
 	
 	const int numSeconds = 3;
 	int numFrames = (int)(targetFPS * numSeconds);
+	setImgFileNameFormatString(numFrames);
 	cap->set(cv::CAP_PROP_FPS, targetFPS);
 	double actualFPS = cap->get(cv::CAP_PROP_FPS);
 	
@@ -167,6 +175,38 @@ double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames
 }
 
 
+void writeFrameToImageFile(int frameID, vector<Mat>& frames, std::mutex* mutexVid) {
+	//std::lock_guard<std::mutex> lock(*mutexVid);
+	mutexVid->lock();
+	string imgPath = fmt::format(imgFileFormatStr, frameID);
+	imwrite(imgPath, frames.at(bufferStartIndex));
+	bufferStartIndex = (bufferStartIndex + 1) % ioBufferSize;
+	mutexVid->unlock();
+}
+
+
+double pushFrameToMatCircularBuffer(shrptr_VideoCapture cap, double time0,
+		vector<Mat>& frames, int frameID) 
+{
+	if ((bufferEndIndex + 1) % ioBufferSize == bufferStartIndex) {
+		printf("Error: I/O buffer is full.\n");
+		exit(0);
+	}
+	bufferEndIndex = (bufferEndIndex + 1) % ioBufferSize;
+
+	cap->retrieve(frames.at(bufferEndIndex));
+
+	// Create threads for writing a frame
+	std::thread writeThread(writeFrameToImageFile, frameID, frames, &writeMutex);
+	writeThread.join(); // Synchronize within the loop
+
+	double currTime = omp_get_wtime();
+	double elapsedTime = currTime - time0;	// record how much time passed (milli-second)
+	int elapsedSecond = (int)elapsedTime;	// record how much time passed (second, drop fractional value).
+	return elapsedTime;
+}
+
+
 void reportTimeStamps(vector<double>& grabTime, vector<double>& retrieveTime) {
 	for (int i = 0; i < grabTime.size(); ++i) {
 		printf("%d\t%f\t%f\n", i + 1, grabTime.at(i), retrieveTime.at(i));
@@ -174,13 +214,14 @@ void reportTimeStamps(vector<double>& grabTime, vector<double>& retrieveTime) {
 }
 
 
-void setImgFileString(const int numFrames) {
+void setImgFileNameFormatString(const int numFrames) {
 	if (numFrames < 1000) imgFileFormatStr = "{}/{}{:03d}.png";
 	else if (numFrames < 10000) imgFileFormatStr = "{}/{}{:04d}.png";
 	else if (numFrames < 100000) imgFileFormatStr = "{}/{}{:05d}.png";
 	else if (numFrames < 1000000) imgFileFormatStr = "{}/{}{:06d}.png";
 	else imgFileFormatStr = "{}/{}{:07d}.png";
 }
+
 
 void exportAllImages(vector<Mat>& frames) {
 	const int nFrames = (int) frames.size();
@@ -235,7 +276,8 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 		cap->grab();  // Video frame is stored in a buffer, waitinf for retrieval
 		grabTimeStamps.push_back(grabTimeStamp);
 		waitTimes.push_back(waitTime);
-		double t = pushFrameToMat(cap, time0, frames, frameID);
+		//double t = pushFrameToMat(cap, time0, frames, frameID);
+		double t = pushFrameToMatCircularBuffer(cap, time0, frames, frameID);
 		retrieveTimeStamps.push_back(t);
 	}
 
