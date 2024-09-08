@@ -63,6 +63,7 @@ std::atomic<int> bufferEndIndex(-1);
 std::atomic<int> bufferStartIndex(-1);
 int maxBufferIndexLead = 0;
 std::mutex writeMutex;
+cv::Mat saveBuffer;
 
 std::atomic<int> grabCount(0);
 std::atomic<int> writeCount(0);
@@ -91,6 +92,20 @@ int main()
 }
 
 
+/// <summary>
+/// Check wether the target and actual capturing frame rates are the same.
+/// Note: a video capturing device may or may not produce the target frame rate we set, 
+///   even though the target frame rate is less than its default frame rate. For example,
+///   if we ask for 15 fps when its default frame rate is 30 fps, the device may not
+///   capture frames at 15 fps, although its capacity should allow it.
+/// If you want to build a scientific dataset, this is an essential step because you may
+///   have more stringent requirements. For instance, if the light source is subject to
+///   50 Hz alternate electric current (not 60 Hz), you might want to target the frame
+///   rate to 25 Hz, not 30 Hz, to avoid flickering. However, your video capturing device
+///   may stick to 30 Hz.
+/// </summary>
+/// <param name="targetFPS"></param>
+/// <param name="actualFPS"></param>
 void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualFPS) {
 	cout << "Actual frame rate = " << actualFPS << " fps\n";
 	if (abs(targetFPS - actualFPS) > 0.01) {
@@ -114,6 +129,7 @@ void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualF
 	return;
 }
 
+
 shrptr_VideoCapture initVideoCapture(const int camID, const int frameHeight,
 		const int frameWidth, const double fps) {
 	shrptr_VideoCapture cap(new VideoCapture(camID));	// open the default camera
@@ -134,7 +150,9 @@ shrptr_VideoCapture initVideoCapture(const int camID, const int frameHeight,
 }
 
 
-/// Removing some unnecessary steps and let the wait time end a little bit earlier
+/// Removing some unnecessary steps and let the wait time end a little bit earlier.
+/// The early end of wait time is to compensate the incoming work before the actual
+///   video capturing.
 int waitForNextTime2(int nextFrameID, double timeBetweenFrame, double time0) {
 	double currTime = omp_get_wtime();
 	double elapsedTime = currTime - time0;
@@ -157,14 +175,18 @@ int waitForNextTime2(int nextFrameID, double timeBetweenFrame, double time0) {
 void prepareEmptyFrames(std::vector<cv::Mat>& frames, const int height,
 	const int width, const int numFrames)
 {
+	saveBuffer = cv::Mat(height, width, CV_8UC3);
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
 		frames.at(frameID) = cv::Mat(height, width, CV_8UC3);
 	}
 }
 
 
+/// Retrieve a frame and store it in a frame array. Then, compute an elapsed time
+///   based on the reference time0.
 /// @return elapsed time from the beginning of processing (time0).
-double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames, int frameID)
+double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames, 
+	int frameID)
 {
 	cap->retrieve(frames.at(frameID));
 
@@ -175,13 +197,16 @@ double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames
 }
 
 
-void writeFrameToImageFile(int frameID, vector<Mat>& frames, std::mutex* mutexVid) {
+void writeFrameToImageFile(int frameID, vector<Mat>* frames, std::mutex* mutexVid) {
 	//std::lock_guard<std::mutex> lock(*mutexVid);
-	mutexVid->lock();
 	string imgPath = fmt::format(imgFileFormatStr, frameID);
-	imwrite(imgPath, frames.at(bufferStartIndex));
+
+	mutexVid->lock();
+	saveBuffer = frames->at(bufferStartIndex);
 	bufferStartIndex = (bufferStartIndex + 1) % ioBufferSize;
 	mutexVid->unlock();
+
+	imwrite(imgPath, saveBuffer);
 }
 
 
@@ -197,8 +222,8 @@ double pushFrameToMatCircularBuffer(shrptr_VideoCapture cap, double time0,
 	cap->retrieve(frames.at(bufferEndIndex));
 
 	// Create threads for writing a frame
-	std::thread writeThread(writeFrameToImageFile, frameID, frames, &writeMutex);
-	writeThread.join(); // Synchronize within the loop
+	std::thread writeThread(writeFrameToImageFile, frameID, &frames, &writeMutex);
+	//writeThread.join(); // Synchronize within the loop
 
 	double currTime = omp_get_wtime();
 	double elapsedTime = currTime - time0;	// record how much time passed (milli-second)
@@ -214,6 +239,13 @@ void reportTimeStamps(vector<double>& grabTime, vector<double>& retrieveTime) {
 }
 
 
+/// <summary>
+/// We want to make frame IDs with running numbers in format 00123 where leading zeros
+///   are not too many for the number of frame we aim at. Therefore, this function takes
+///   the number of frames we expect and prepare the number of digits including leading
+///   zeros accordingly.
+/// </summary>
+/// <param name="numFrames">The number of frames we expect for video recording.</param>
 void setImgFileNameFormatString(const int numFrames) {
 	if (numFrames < 1000) imgFileFormatStr = "{}/{}{:03d}.png";
 	else if (numFrames < 10000) imgFileFormatStr = "{}/{}{:04d}.png";
@@ -247,45 +279,19 @@ void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSe
 }
 
 
-void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrames,
-	const int numFrames, const int framesPerSec)
-{
-	vector<Mat> frames(numFrames);
-	const int frameHeight = (int)cap->get(cv::CAP_PROP_FRAME_HEIGHT);
-	const int frameWidth = (int)cap->get(cv::CAP_PROP_FRAME_WIDTH);
-	prepareEmptyFrames(frames, frameHeight, frameWidth, numFrames);
-
-	// Note: the first few frames usually involves many initialization process.
-	// Therefore, it will be more time consuming than usual. We will drop
-	//   five frames and start the process from the sixth.
+// The first few frames of grabbing and retrieving usually involves many initialization 
+//   process.  Therefore, it will be more time consuming than usual. We will drop a few 
+//   frames, say 5, and start the process from the sixth.
+void warmUpGrabbingAndRetrieving(shrptr_VideoCapture cap, Mat dummyFrame) {
 	for (int i = 0; i < 5; ++i) {
 		cap->grab();
-		cap->retrieve(frames.at(0));  // This dummy frame will be overwriten by a real frame.
+		cap->retrieve(dummyFrame);  // This dummy frame will be overwriten by a real frame.
 	}
-	
-	vector<double> grabTimeStamps;
-	vector<double> retrieveTimeStamps;
-	vector<int> waitTimes;
-	double time0 = omp_get_wtime();
-	for (int frameID = 0; frameID < numFrames; ++frameID) {
-		// Video frame is captured when grab is called. So, we compute the wait time
-		//   right before we call grab.	For example, at 30 fps, the first frame should be captured
-		//   at about t = 0.0333 second.
-		int waitTime = waitForNextTime2(frameID + 1, timeBetweenFrames, time0);
-		const double grabTimeStamp = omp_get_wtime() - time0;
-		cap->grab();  // Video frame is stored in a buffer, waitinf for retrieval
-		grabTimeStamps.push_back(grabTimeStamp);
-		waitTimes.push_back(waitTime);
-		//double t = pushFrameToMat(cap, time0, frames, frameID);
-		double t = pushFrameToMatCircularBuffer(cap, time0, frames, frameID);
-		retrieveTimeStamps.push_back(t);
-	}
+}
 
-	reportTimeStamps(grabTimeStamps, retrieveTimeStamps);
 
-	exportAllImages(frames);
-	//exportVideo(frames, numFrames, framesPerSec);
-
+void reportGrabTimeAndDeviation(const int numFrames, const double timeBetweenFrames,
+		vector<double>& grabTimeStamps, vector<int>& waitTimes) {
 	double previousTimeStamp = 0;
 	int timeDiffSum = 0;
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
@@ -293,13 +299,58 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 		double frameStartTime = timeBetweenFrames * frameID;
 		double expectedTime = (timeBetweenFrames * (frameID + 1));
 		int timeDiff = (int)((grabTime - expectedTime) * 1000);
-		printf("frame %3d at %4.4f, wait time = %2d, deviation of arrival time = %3d msec\n", 
-			frameID + 1, grabTime - frameStartTime, 
+		printf("frame %3d at %4.4f, wait time = %2d, deviation of arrival time = %3d msec\n",
+			frameID + 1, grabTime - frameStartTime,
 			waitTimes.at(frameID), timeDiff);
 		timeDiffSum += abs(timeDiff);
 		previousTimeStamp = grabTimeStamps.at(frameID);
 	}
 	printf("Total deviation time = %d ms, average deviation time = %.3f ms\n",
 		timeDiffSum, timeDiffSum / (double)numFrames);
+}
+
+
+void grabPushWaitLoop(shrptr_VideoCapture cap, vector<Mat>& frames, const int numFrames,
+		const double timeBetweenFrames,	vector<double>& grabTimeStamps, 
+		vector<double>& retrieveTimeStamps, vector<int>& waitTimes) 
+{
+	double time0 = omp_get_wtime();
+	for (int frameID = 0; frameID < numFrames; ++frameID) {
+		// Video frame is captured when grab is called. So, we compute the wait time
+		//   right before we call grab.	For example, at 30 fps, the first frame should be captured
+		//   at about t = 0.0333 second.
+		int waitTime = waitForNextTime2(frameID + 1, timeBetweenFrames, time0);
+		const double grabTimeStamp = omp_get_wtime() - time0;
+		cap->grab();  // Video frame is stored in a buffer, waiting for retrieval to RAM.
+		grabTimeStamps.push_back(grabTimeStamp);
+		waitTimes.push_back(waitTime);
+		//double t = pushFrameToMat(cap, time0, frames, frameID);
+		double t = pushFrameToMatCircularBuffer(cap, time0, frames, frameID);
+		retrieveTimeStamps.push_back(t);
+	}
+}
+
+
+void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrames,
+	const int numFrames, const int framesPerSec)
+{
+	vector<Mat> frames(numFrames);
+	const int frameHeight = (int)cap->get(cv::CAP_PROP_FRAME_HEIGHT);
+	const int frameWidth = (int)cap->get(cv::CAP_PROP_FRAME_WIDTH);
+	prepareEmptyFrames(frames, frameHeight, frameWidth, numFrames);
+	warmUpGrabbingAndRetrieving(cap, frames.at(0));
+	
+	vector<double> grabTimeStamps;
+	vector<double> retrieveTimeStamps;
+	vector<int> waitTimes;
+	grabPushWaitLoop(cap, frames, numFrames, timeBetweenFrames, grabTimeStamps,
+		retrieveTimeStamps, waitTimes);
+
+	reportTimeStamps(grabTimeStamps, retrieveTimeStamps);
+
+	exportAllImages(frames);
+	//exportVideo(frames, numFrames, framesPerSec);
+
+	reportGrabTimeAndDeviation(numFrames, timeBetweenFrames, grabTimeStamps, waitTimes);
 }
 
