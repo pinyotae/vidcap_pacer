@@ -16,11 +16,13 @@
 #include <thread>
 #include <fmt/core.h>
 #include <windows.h>
+#include "json.hpp"
 
 #define shrptr_VideoCapture std::shared_ptr<cv::VideoCapture> 
 
 using namespace cv;
 using namespace std;
+using json = nlohmann::json;
 
 shrptr_VideoCapture initVideoCapture(const int camID, const int frameHeight = 480,
 	const int frameWidth = 640, const double fps=30);
@@ -31,6 +33,10 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualFPS);
 
 void setImgFileNameFormatString(const int numFrames);
+
+void readJsonVidCaptureSettings(string configPath);
+
+void printCaptureSettings();
 
 /* Program arguments :
 	1. camID (int): Camera ID (video capture device) of the machine.
@@ -55,13 +61,28 @@ void setImgFileNameFormatString(const int numFrames);
 	. saveOnce (boolean):
 */
 
-string series_name = "demo_";
-string img_out_folder = "C:/TestingGround/VideoCapture/Images";
+string seriesName = "demo_";
+string outputFolder = "C:/TestingGround/VideoCapture/Images";
 string imgFileFormatStr;
 string video_out_folder = "C:/TestingGround/VideoCapture/Videos";
 string timeStampReportFileName = "time_stamp_report.tab";
 string timeDeviationReportFileName = "time_deviation_report.tab";
-int ioBufferSize = 30;
+bool seriesNameReportPrefix = true;  // Series name will be a prefix to the report file name.
+int ioBufferLength = 30;
+
+int camID = 0;
+int frameHeight = 480;
+int frameWidth = 640;
+double targetFPS = 15;
+int recordTimeSeconds = 3;
+
+/// Capture thread will awake before the expected capture time by the amount of
+///   margin time. For example, if marginTime is 0.002, the thread will awake 2 ms
+///   before the expected capture time.
+double marginTime = 0.003;
+
+bool videoExport = false;
+
 std::atomic<int> bufferEndIndex(0);
 std::atomic<int> bufferStartIndex(0);
 int framesNotWritten = 0;
@@ -71,21 +92,25 @@ int timeBetweenFramesMSec;
 cv::Mat saveBuffer;
 int numFrames;
 
-std::atomic<int> grabCount(0);
-std::atomic<int> writeCount(0);
 
-
-int main() {
+int main(int argc, char* argv[]) {
+	if (argc == 1) {
+		cout << "Please provide the path to video capture settings." << endl;
+		return 0;
+	}
+	else {
+		readJsonVidCaptureSettings(argv[1]);
+		if (seriesNameReportPrefix) {
+			timeStampReportFileName = seriesName + "_" + timeStampReportFileName;
+			timeDeviationReportFileName = seriesName + "_" + timeDeviationReportFileName;
+		}
+		printCaptureSettings();
+	}
     std::cout << "Start of Video Capturing\n";
-	const int camID = 0;
-	const int frameHeight = 480;
-	const int frameWidth = 640;
-	const double targetFPS = 15;
 	cout << "Target frame rate = " << targetFPS << "\n";
 	shrptr_VideoCapture cap = initVideoCapture(camID, frameHeight, frameWidth, targetFPS);
 	
-	const int numSeconds = 5;
-	numFrames = (int)(targetFPS * numSeconds);
+	numFrames = (int)(targetFPS * recordTimeSeconds);
 	cout << "Number of frames = " << numFrames << "\n";
 	framesLeftToCapture = numFrames;
 	setImgFileNameFormatString(numFrames);
@@ -168,13 +193,9 @@ int waitForNextGrab(int nextFrameID, double timeBetweenFrame, double time0) {
 	double currTime = omp_get_wtime();
 	double elapsedTime = currTime - time0;
 	double nextTime = nextFrameID * timeBetweenFrame;
-
-	// Capture thread will awake before the expected capture time by the amount of
-	//   margin time. For example, if marginTime is 0.002, the thread will awake 2 ms
-	//   before the expected capture time.
-	const double marginTime = 0.003;  
+  
 	int waitTime = -1;
-	if (elapsedTime < nextTime - marginTime) { // Need to wait until the next time
+	if (elapsedTime < nextTime - marginTime) {  // Need to wait until the next time
 		waitTime = (int)((nextTime - elapsedTime - marginTime) * 1000);
 		if (waitTime > 0)
 			Sleep(waitTime);
@@ -183,10 +204,58 @@ int waitForNextGrab(int nextFrameID, double timeBetweenFrame, double time0) {
 }
 
 
+void readJsonVidCaptureSettings(string jsonSettingsPath) {
+	ifstream f(jsonSettingsPath);
+	json vcaptureSettings = json::parse(f);
+	f.close();
+
+	seriesName = vcaptureSettings["series_name"];
+	outputFolder = vcaptureSettings["output_folder"];
+	timeStampReportFileName = vcaptureSettings["time_stamp_report_file_name"];
+	timeDeviationReportFileName = vcaptureSettings["time_deviation_report_file_name"];
+	seriesNameReportPrefix = vcaptureSettings["series_name_report_prefix"];
+	ioBufferLength = vcaptureSettings["io_buffer_length"];
+
+	camID = vcaptureSettings["camera_id"];
+	frameHeight = vcaptureSettings["frame_height"];
+	frameWidth = vcaptureSettings["frame_width"];
+	targetFPS = vcaptureSettings["target_frame_per_sec"];
+	recordTimeSeconds = vcaptureSettings["record_time_sec"];
+
+	marginTime = vcaptureSettings["margin_time"];
+	videoExport = vcaptureSettings["video_export"];
+}
+
+
+/// <summary>
+///  Display the settings received through JSON settings. This informs the user of
+///    the actual settings the program reads from the file.
+/// </summary>
+void printCaptureSettings() {
+	fmt::print("\n===== Video Capture Settings =====\n");
+	fmt::print("Series Name: {}\n", seriesName);
+	fmt::print("Output Folder: {}\n", outputFolder);
+	fmt::print("Time Stamp Report File Name: {}\n", timeStampReportFileName);
+	fmt::print("Time Deviation Report File Name: {}\n", timeDeviationReportFileName);
+	fmt::print("Use Series Name as Prefix to Report File Name: {}\n", seriesNameReportPrefix);
+	fmt::print("I/O Buffer Length: {} frames\n\n", ioBufferLength);
+
+	fmt::print("Camera ID: {}\n", camID);
+	fmt::print("Frame Height: {} pixels\n", frameHeight);
+	fmt::print("Frame Width: {} pixels\n", frameWidth);
+	fmt::print("Target Frames Per Seconds (FPS): {} fps\n", targetFPS);
+	fmt::print("Recording time: {} seconds\n\n", recordTimeSeconds);
+
+	fmt::print("Margin Time before Grabbing: {} seconds\n", marginTime);
+	fmt::print("Export to Video: {}\n", videoExport);
+	fmt::print("===== ===== ===== ===== ===== =====\n\n");
+}
+
+
 void prepareEmptyFrames(std::vector<cv::Mat>& frames, const int height,
 		const int width) {
 	saveBuffer = cv::Mat(height, width, CV_8UC3);
-	for (int frameID = 0; frameID < ioBufferSize; ++frameID) {
+	for (int frameID = 0; frameID < ioBufferLength; ++frameID) {
 		frames.at(frameID) = cv::Mat(height, width, CV_8UC3);
 	}
 }
@@ -208,11 +277,11 @@ double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames
 
 void writeFrameToImageFile(int frameID, vector<Mat>* frames) {
 	//std::lock_guard<std::mutex> lock(*mutexVid);
-	string imgPath = fmt::format(imgFileFormatStr, img_out_folder, series_name, frameID);
+	string imgPath = fmt::format(imgFileFormatStr, outputFolder, seriesName, frameID);
 
 	writeMutex.lock(); {
 		saveBuffer = frames->at(bufferStartIndex);
-		bufferStartIndex = (bufferStartIndex + 1) % ioBufferSize;
+		bufferStartIndex = (bufferStartIndex + 1) % ioBufferLength;
 		framesNotWritten -= 1;
 	}
 	writeMutex.unlock();
@@ -225,11 +294,11 @@ double pushFrameToMatCircularBuffer(shrptr_VideoCapture cap, double time0,
 		vector<Mat>& frames, int frameID) 
 {
 	writeMutex.lock(); {
-		if ((bufferEndIndex + 1) % ioBufferSize == bufferStartIndex) {
+		if ((bufferEndIndex + 1) % ioBufferLength == bufferStartIndex) {
 			printf("Error: I/O buffer is full.\n");
 			exit(0);
 		}
-		bufferEndIndex = (bufferEndIndex + 1) % ioBufferSize;
+		bufferEndIndex = (bufferEndIndex + 1) % ioBufferLength;
 		cap->retrieve(frames.at(bufferEndIndex));
 		framesNotWritten += 1;
 		framesLeftToCapture -= 1;
@@ -258,8 +327,8 @@ void saveFramesThd(vector<Mat>* frames) {
 
 // Report the time stamp of each frame to a file.
 void reportTimeStamps(vector<double>& grabTime, vector<double>& retrieveTime) {
-	string timeStampPath = img_out_folder + "/" + timeStampReportFileName;
-	cout << "Saving the time stamp of each frame to " << timeStampPath << "\n";
+	string timeStampPath = outputFolder + "/" + timeStampReportFileName;
+	cout << "\nSaving the time stamp of each frame to " << timeStampPath << "\n";
 	ofstream reportFile(timeStampPath);
 
 	reportFile << "FrameID\tGrabTime(s)\tRetrievalTime(s)\n";
@@ -290,9 +359,9 @@ void setImgFileNameFormatString(const int numFrames) {
 
 
 void exportAllImages(vector<Mat>& frames) {
-	printf("Saving all %d images.\n", numFrames);	
+	printf("\nSaving all %d images.\n", numFrames);	
 	for (int i = 0; i < numFrames; ++i) {
-		string img_path = fmt::format(imgFileFormatStr, img_out_folder, series_name, i);
+		string img_path = fmt::format(imgFileFormatStr, outputFolder, seriesName, i);
 		imwrite(img_path, frames.at(i));
 		if (i % 100 == 0)  // Print a dot for each 100 images saved.
 			printf(".");
@@ -301,16 +370,25 @@ void exportAllImages(vector<Mat>& frames) {
 }
 
 
+/// <summary>
+///  Export a saved image sequence to a video. The method loads images from storage and
+///  put them together as a video.
+/// </summary>
+/// <param name="frames"></param>
+/// <param name="numFrames"></param>
+/// <param name="framesPerSec"></param>
 void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSec) {
-	int width = frames.at(0).cols;
-	int height = frames.at(0).rows;
-	printf("Frame size = (%d, %d)\n", width, height);
-	VideoWriter vidWriter("C:/TestingGround/VideoCapture/test.avi",
+	cout << "\nExporting a video from a saved image sequence." << endl;
+	printf("Frame size (width, height) = (%d, %d)\n", frameWidth, frameHeight);
+	string videoPath = outputFolder + "/" + seriesName + ".avi";
+	VideoWriter vidWriter(videoPath,
 		cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-		framesPerSec, cv::Size(width, height), true);
+		framesPerSec, cv::Size(frameWidth, frameHeight), true);
+	Mat vidFrame = cv::Mat(frameHeight, frameWidth, CV_8UC3);
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
-		vidWriter << frames.at(frameID);
+		vidWriter << cv::imread(fmt::format(imgFileFormatStr, outputFolder, seriesName, frameID));
 	}
+	cout << "Exporting a video DONE" << endl;
 }
 
 
@@ -327,8 +405,8 @@ void warmUpGrabbingAndRetrieving(shrptr_VideoCapture cap, Mat dummyFrame) {
 
 void reportGrabTimeAndDeviation(const int numFrames, const double timeBetweenFrames,
 		vector<double>& grabTimeStamps, vector<int>& waitTimes) {
-	string reportPath = img_out_folder + "/" + timeDeviationReportFileName;
-	cout << "Saving deviation of frame arrival time to " << reportPath << endl;
+	string reportPath = outputFolder + "/" + timeDeviationReportFileName;
+	cout << "\nSaving deviation of frame arrival time to " << reportPath << endl;
 	ofstream reportFile(reportPath);
 	reportFile << "FrameID\t" << "FrameTime(ms)\t" << "WaitTime(ms)\t" << "ArrivalTimeDeviation(ms)\n";
 
@@ -402,7 +480,7 @@ void grabPushWaitLoop(shrptr_VideoCapture cap, vector<Mat>& frames, const int nu
 void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrames,
 	const int numFrames, const int framesPerSec)
 {
-	vector<Mat> frames(ioBufferSize);  // Use parameter numFrames if all to be stored.
+	vector<Mat> frames(ioBufferLength);  // Use parameter numFrames if all to be stored.
 	const int frameHeight = (int)cap->get(cv::CAP_PROP_FRAME_HEIGHT);
 	const int frameWidth = (int)cap->get(cv::CAP_PROP_FRAME_WIDTH);
 	prepareEmptyFrames(frames, frameHeight, frameWidth);
@@ -417,7 +495,7 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 		timeBetweenFrames, &grabTimeStamps, &retrieveTimeStamps, &waitTimes);
 
 	// Start a thread for saving video frames if I/O buffer cannot contain all frames
-	if (numFrames > ioBufferSize) {
+	if (numFrames > ioBufferLength) {
 		std::thread frameSavingThread(saveFramesThd, &frames);
 		frameSavingThread.join();  // Synchronize within the loop
 	}	
@@ -428,10 +506,12 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 
 	// If the buffer can hold the entire set of grabbed frames, we will write the frames
 	//   when all frames are available in the buffer.
-	if (numFrames <= ioBufferSize) {
+	if (numFrames <= ioBufferLength) {
 		exportAllImages(frames);
 	}
-	//exportVideo(frames, numFrames, framesPerSec);
+
+	if(videoExport)
+		exportVideo(frames, numFrames, framesPerSec);
 
 	reportGrabTimeAndDeviation(numFrames, timeBetweenFrames, grabTimeStamps, waitTimes);
 }
