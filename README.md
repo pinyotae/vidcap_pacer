@@ -1,5 +1,5 @@
 # VidCap Pacer
-**Pacing video frame grabbing to make frame arrival time as ideally as possible.**
+**Pacing video frame grabbing to make frame capturing time as ideally as possible.**
 
 ## Introuduction
 When we grab video frames, frames may not arrive at a constant pace, especially for a low-end camera. For example, if we expect a frame rate of 30 frames per second (30 fps), each frame should ideally arrive at 33.3 millisecond (ms) interval. Unfortunately, if we closely track frame arrival time, we may observe that sometimes two consecutive frames arrive with a very narrow interval (say 20 ms), sometimes, the interval is much longer (say 50 ms). Although the average frame rate may be close to 30 fps, this will cause a serious issue if we are to measure some time-related quantity from video frames (e.g., heart rate and speed). 
@@ -23,6 +23,16 @@ Although we pace frame arrival as ideally as possible, there is much challenge t
 ## Example Usage
 
 ## Tools Used (Dependency)
+1. OpenCV
+2. JSON for Modern C++
+3. {fmt}
+4. Boost library
+5. OpenMP
 
 ## Citation
-If you VidCap Pacer, please 
+If you VidCap Pacer in your work, please cite our following work.
+```
+N. Tangjui and P. Taeprasartsit, "Impacts of Camera Frame Pacing for Video Recording on Time-Related Applications," 
+2019 16th International Joint Conference on Computer Science and Software Engineering (JCSSE),
+Chonburi, Thailand, 2019, pp. 364-368, doi: 10.1109/JCSSE.2019.8864200.
+```
