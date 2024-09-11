@@ -7,5 +7,6 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LocalDebuggerEnvironment>PATH=%PATH%;C:\Libs\opencv\build\x64\vc17\bin\Release;</LocalDebuggerEnvironment>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+    <LocalDebuggerCommandArguments>C:\Repos\VideoFramePacer\FramePacer\video_capture_settings.json</LocalDebuggerCommandArguments>
   </PropertyGroup>
 </Project>
