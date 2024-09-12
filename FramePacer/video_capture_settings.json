@@ -1,16 +1,17 @@
 {
 	"series_name": "vcap_demo",
-	"output_folder": "C:/TestingGround/VideoCapture/Images2",
+	"output_folder": "F:/TestingGround/VideoCapture/Images",
 	"time_stamp_report_file_name": "time_stamp_report.tab",
 	"time_deviation_report_file_name": "time_deviation_report.tab",
 	"series_name_report_prefix": true,
-	"io_buffer_length": 30,
+	"io_buffer_length": 1000,
 	
 	"camera_id": 0,
 	"frame_height": 480,
 	"frame_width": 640,
 	"target_frame_per_sec": 15,
-	"record_time_sec": 4,
-	"margin_time": 0.004,
-	"video_export": true
+	"record_time_sec": 60,
+	"precap_rough_margin_time": 0.015,
+	"precap_fine_margin_time": 0.00005,
+	"video_export": false
 }

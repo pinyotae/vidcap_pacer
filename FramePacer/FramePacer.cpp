@@ -1,10 +1,9 @@
-// FramePacer.cpp : This file contains the 'main' function. Program execution begins and ends there.
-// Build OpenCV for VC 17 (Visual Studio 2022): https://www.gollahalli.com/blog/build-opencv-with-visual-studio-and-cmake-gui/#step-4-set-the-source-and-build-directories
-// Remember to check option build opencv_world in CMake before you generate the solution.
-
-// TODO: Parameterize output folders (lossless frames and videos)
-// TODO: Use I/O thread
-// TODO: Save videos at interval
+/**
+  The main function of VidCap(frame) Pacer
+  
+  MIT License
+  Copyright (c) 2024 Pinyo Taeprasartsit
+ */ 
 
 #include <iostream>
 #include <fstream>
@@ -77,14 +76,21 @@ double targetFPS = 15;
 int recordTimeSeconds = 3;
 
 /// Capture thread will awake before the expected capture time by the amount of
-///   margin time. For example, if marginTime is 0.002, the thread will awake 2 ms
-///   before the expected capture time.
-double marginTime = 0.003;
+///   rough margin time. For example, if precapRoughMarginTime is 0.020, the thread will awake 20 ms
+///   before the expected capture time.	
+/// Then,the capture thread will be in a tight loop until precapFineMarginTime, which should be <= 0.1 ms.
+/// This tight loop will occupy the CPU for a short while, but it can virtually eliminate the imprecise
+///   frame grabbing time issue in Windows. If your machine has at sufficient cores, this should not be
+///   an issue.
+double precapRoughMarginTime = 0.020;
+double precapFineMarginTime = 0.00005;
 
 bool videoExport = false;
 
-std::atomic<int> bufferEndIndex(0);
-std::atomic<int> bufferStartIndex(0);
+//std::atomic<int> bufferEndIndex(0);
+//std::atomic<int> bufferStartIndex(0);
+int bufferEndIndex = 0;
+int bufferStartIndex = 0;
 int framesNotWritten = 0;
 int framesLeftToCapture = 0;
 std::mutex writeMutex;
@@ -106,7 +112,7 @@ int main(int argc, char* argv[]) {
 		}
 		printCaptureSettings();
 	}
-    std::cout << "Start of Video Capturing\n";
+    cout << "Initializing Video Capture\n";
 	cout << "Target frame rate = " << targetFPS << "\n";
 	shrptr_VideoCapture cap = initVideoCapture(camID, frameHeight, frameWidth, targetFPS);
 	
@@ -121,6 +127,7 @@ int main(int argc, char* argv[]) {
 	timeBetweenFramesMSec = (int)(timeBetweenFrames * 1000);
 	cout << "Time between frames = " << timeBetweenFramesMSec << " msec\n";
 
+	cout << "\nStarting Video Capture" << endl;
 	captureToMemorySpace(cap, timeBetweenFrames, numFrames, (int) targetFPS);
 }
 
@@ -194,12 +201,20 @@ int waitForNextGrab(int nextFrameID, double timeBetweenFrame, double time0) {
 	double elapsedTime = currTime - time0;
 	double nextTime = nextFrameID * timeBetweenFrame;
   
+	// Put thread to sleep for precap rough margin time.
 	int waitTime = -1;
-	if (elapsedTime < nextTime - marginTime) {  // Need to wait until the next time
-		waitTime = (int)((nextTime - elapsedTime - marginTime) * 1000);
+	if (elapsedTime < nextTime - precapRoughMarginTime) {  // Need to wait until the next time
+		waitTime = (int)((nextTime - elapsedTime - precapRoughMarginTime) * 1000);
 		if (waitTime > 0)
-			Sleep(waitTime);
+			std::this_thread::sleep_for(std::chrono::milliseconds(waitTime));
 	}
+	
+	// Use loop spinning to check time, continue when it is close to the ideal time for next frame grabbing.
+	double nextTimeAbsolute = nextTime + time0;
+	while (nextTimeAbsolute - omp_get_wtime() > precapFineMarginTime) {
+		continue;
+	}
+
 	return waitTime;
 }
 
@@ -222,7 +237,8 @@ void readJsonVidCaptureSettings(string jsonSettingsPath) {
 	targetFPS = vcaptureSettings["target_frame_per_sec"];
 	recordTimeSeconds = vcaptureSettings["record_time_sec"];
 
-	marginTime = vcaptureSettings["margin_time"];
+	precapRoughMarginTime = vcaptureSettings["precap_rough_margin_time"];
+	precapFineMarginTime = vcaptureSettings["precap_fine_margin_time"];
 	videoExport = vcaptureSettings["video_export"];
 }
 
@@ -246,7 +262,8 @@ void printCaptureSettings() {
 	fmt::print("Target Frames Per Seconds (FPS): {} fps\n", targetFPS);
 	fmt::print("Recording time: {} seconds\n\n", recordTimeSeconds);
 
-	fmt::print("Margin Time before Grabbing: {} seconds\n", marginTime);
+	fmt::print("Rough Margin Time before Frame Grabbing: {:.5f} seconds\n", precapRoughMarginTime);
+	fmt::print("Fine Margin Time before Frame Grabbing: {:.5f} seconds\n", precapFineMarginTime);
 	fmt::print("Export to Video: {}\n", videoExport);
 	fmt::print("===== ===== ===== ===== ===== =====\n\n");
 }
@@ -379,6 +396,7 @@ void exportAllImages(vector<Mat>& frames) {
 /// <param name="framesPerSec"></param>
 void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSec) {
 	cout << "\nExporting a video from a saved image sequence." << endl;
+	double t0 = omp_get_wtime();
 	printf("Frame size (width, height) = (%d, %d)\n", frameWidth, frameHeight);
 	string videoPath = outputFolder + "/" + seriesName + ".avi";
 	VideoWriter vidWriter(videoPath,
@@ -387,8 +405,10 @@ void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSe
 	Mat vidFrame = cv::Mat(frameHeight, frameWidth, CV_8UC3);
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
 		vidWriter << cv::imread(fmt::format(imgFileFormatStr, outputFolder, seriesName, frameID));
+		if (frameID % 100 == 0)  // Print a dot for each 100 images saved.
+			printf(".");
 	}
-	cout << "Exporting a video DONE" << endl;
+	fmt::print("\nExporting a video DONE, {:.2f} seconds\n", omp_get_wtime() - t0);
 }
 
 
@@ -411,26 +431,25 @@ void reportGrabTimeAndDeviation(const int numFrames, const double timeBetweenFra
 	reportFile << "FrameID\t" << "FrameTime(ms)\t" << "WaitTime(ms)\t" << "ArrivalTimeDeviation(ms)\n";
 
 	double previousTimeStamp = 0;
-	int timeDiffSum = 0;
+	double timeDiffSum = 0;
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
 		double grabTime = grabTimeStamps.at(frameID);
 		double frameStartTime = timeBetweenFrames * frameID;
 		double expectedTime = (timeBetweenFrames * (frameID + 1));
 		double timeDiff = (grabTime - expectedTime) * 1000;
-		reportFile << fmt::format("{:3d}\t{:5.2f}\t{:2d}\t{:.2f}\n",
-			frameID + 1, (grabTime - frameStartTime) * 1000, waitTimes.at(frameID), 
-			timeDiff);
+		reportFile << fmt::format("{:3d}\t{:5.2f}\t{:2d}\t{:.2f}\n", frameID + 1, 
+			(grabTime - frameStartTime) * 1000, waitTimes.at(frameID), timeDiff);
 		timeDiffSum += abs(timeDiff);
 		previousTimeStamp = grabTimeStamps.at(frameID);
 		if (frameID % 100 == 0)  // Print a dot for every 100 lines saved.
 			cout << ".";
 	}
-	reportFile << fmt::format("\nTotal absolute deviation time = {} ms, average absolute deviation time = {:.3f} ms\n",
-		timeDiffSum, timeDiffSum / (double)numFrames);
+	reportFile << fmt::format("\nTotal absolute deviation time = {:.2f} ms, average absolute deviation time = {:.3f} ms\n",
+		timeDiffSum, timeDiffSum / numFrames);
 	reportFile.close();
 	cout << "\nSaving time deviation DONE" << endl;
-	printf("Total absolute deviation time = %d ms, average absolute deviation time = %.3f ms\n",
-		timeDiffSum, timeDiffSum / (double)numFrames);
+	fmt::print("\nTotal absolute deviation time = {:.2f} ms, average absolute deviation time = {:.3f} ms\n",
+		timeDiffSum, timeDiffSum / numFrames);
 }
 
 
@@ -452,28 +471,7 @@ void grabPushWaitThdLoop(shrptr_VideoCapture cap, vector<Mat>* frames,
 		double t = pushFrameToMatCircularBuffer(cap, time0, *frames, frameID);
 		retrieveTimeStamps->push_back(t);
 	}
-	cout << "Frame grapping completed.\n";
-}
-
-
-void grabPushWaitLoop(shrptr_VideoCapture cap, vector<Mat>& frames, const int numFrames,
-		const double timeBetweenFrames,	vector<double>& grabTimeStamps, 
-		vector<double>& retrieveTimeStamps, vector<int>& waitTimes) 
-{
-	double time0 = omp_get_wtime();
-	for (int frameID = 0; frameID < numFrames; ++frameID) {
-		// Video frame is captured when grab is called. So, we compute the wait time
-		//   right before we call grab.	For example, at 30 fps, the first frame should be captured
-		//   at about t = 0.0333 second.
-		int waitTime = waitForNextGrab(frameID + 1, timeBetweenFrames, time0);
-		const double grabTimeStamp = omp_get_wtime() - time0;
-		cap->grab();  // Video frame is stored in a buffer, waiting for retrieval to RAM.
-		grabTimeStamps.push_back(grabTimeStamp);
-		waitTimes.push_back(waitTime);
-		//double t = pushFrameToMat(cap, time0, frames, frameID);
-		double t = pushFrameToMatCircularBuffer(cap, time0, frames, frameID);
-		retrieveTimeStamps.push_back(t);
-	}
+	fmt::print("Frame grapping DONE, {:.2f} seconds\n", omp_get_wtime() - time0);
 }
 
 
