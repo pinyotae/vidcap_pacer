@@ -13,7 +13,7 @@ To respond to this issue, we have created VidCap Pacer, a video capturing tool w
 ## How does it Work?
 VidCap Pacer creates two threads: one for frame grabbing and another for I/O. Frames are grabbed and initially stored in a circular buffer by the frame grabbing thread. Then, the I/O thread will read frames in the buffer and write each frame to storage in a PNG format. Both threads use mutex to safely handle the buffer. The frame grabbing thread checks itself against the ideal time before issuing the cap.grab() command. If it is too early the thread will sleep to wait without much CPU utilization. Then, it resumes milliseconds before the ideal frame grabbing time and wait for the ideal time by loop spinning. This part is CPU intensive, but it makes timing much more accurate because a thread scheduling may not wake the thread up in time if we do not prepare some time for possible delay.
 
-The image is stored with lossless compression because VidCap Pacer is aimed at creating a high quality scientific dataset. Frames are initially stored in separate files, and the user can set the program to combine these files and create a single video when it wraps up the processing.
+The image is stored with lossless compression because VidCap Pacer is aimed at creating a high quality scientific dataset where biosignals may be interfered with other signals. (We do not allow other formats as of now, but it is planned.) Frames are initially stored in separate files, and the user can set the program to combine these files and create a single video when it wraps up the processing.
 
 ## Challenge and Limitations
 Although we pace frame arrival as ideally as possible, there is much challenge that prevent us from eliminating the issue in most devices. This includes
@@ -24,11 +24,20 @@ Although we pace frame arrival as ideally as possible, there is much challenge t
 3. **Thread Scheduling**: VidCap Pacer uses Sleep to put a frame-grabbing thread on hold if it is not a time to grab a frame yet. The thread will continue a few milliseconds before the ideal frame grabbing time. For example, if it will take 10 milliseconds before the ideal time, the thread will sleep for 7 milliseconds and continues 3 milliseconds before the ideal time. We call this 3 milliseconds precapRoughMarginTime (can be specified by users to suit their systems).
 <br/><br/> Although the thread is supposed to exit its sleep state before the ideal frame grabbing time, thread scheduling and resource competition may prevent it from issuing a grab command in time. Therefore, VidCap Pacer also uses loop spinning to check the time, as well. Basically, if we set precapRoughMarginTime long enough, a thread should resume its execution before the ideal time. However, loop spinning may utilize CPU more than it should be. In addition, thread scheduling and resource competition is somewhat unpredicatable at times and the frame grabbing thread may still be late.
 
-4. **Execution Overhead**: Although the computation overhead from waking up the thread to grabbing a frame may not vary much, a significant delay of frame grabbing is not rare because the time the capturing device spends for frame retrieval may significantly vary for each frame. This results in a thread being so late that even though it does not sleep, it cannot perform frame grabbing in time. We observed this issue mainly with USB 2 cameras, especially cheap ones (say $7 webcams). For these problematic capturing devices, a simple frame retrieval with cap.retrieve(frameMat) occassionally takes very long to finish, even when a frame resolution is not high (e.g., 640 x 480). Such latency is beyond the capability of our frame pacing method. However, this issue was barely observed in (native) USB 3 cameras. Therefore, if the frame timing of your USB 2 camara is unacceptable for your application, you might want to try a camera whose connection is USB 3.
+4. **Execution Overhead**: Although the computation overhead from waking up the thread to grabbing a frame may not vary much, a significant delay of frame grabbing is not rare because the time the capturing device spends for frame retrieval may significantly vary for each frame. This results in a thread being so late that even though it does not sleep, it cannot perform frame grabbing in time. We observed this issue mainly with USB 2 cameras, especially cheap ones (say $7 webcams). For these problematic capturing devices, a simple frame retrieval with cap.retrieve(frameMat) occassionally takes very long to finish, even when a frame resolution is not high (e.g., 640 x 480). Such latency is beyond the capability of our frame pacing method. However, this issue was barely observed in USB 3 cameras. Therefore, if the frame timing of your USB 2 camara is unacceptable for your application, you might want to try a camera whose connection is USB 3.
 
 ## Installation
+We provide a binary for Windows 11 64 bit. Please follow the steps below.
+1. Download opencvworld libary.
+2. Download VidCap Pacer executable. Put it in the same folder.
+3. Download a video capture settings JSON file.
+4. Install VC++ distributable Runtime for VC17 (Visual C++ 2022) 64 bits.
 
 ## How to Use
+1. Edit the settings JSON file. Usually, you will change the following arguments:
+   <br>series_name: output_folder
+   <br>
+3. 
 
 ## Example Usage
 
