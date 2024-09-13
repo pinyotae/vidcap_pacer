@@ -44,7 +44,21 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 3. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ```VidCapPacer video_capture_settings.json```.
 
 ## VidCap Pacer JSON Arguments
-
+1. "series_name" (string): the name of frame series. Output files will be prefixed with series_name.
+2. "output_folder" (string): folder to store image frames, video, and reports.
+3. "time_stamp_report_file_name" (string): base file name of a time stamp report showing when each frame is grabbed and retrieved. This will help analyze the frame timing.
+4. "time_deviation_report_file_name": base file name of a deviation time when compared with ideal frame grabbing time.
+5. "series_name_report_prefix": true,
+6. "io_buffer_length": 1000,
+	
+7. "camera_id": 0,
+8. "frame_height": 480,
+9. "frame_width": 640,
+10. "target_frame_per_sec": 15,
+11. "record_time_sec": 60,
+12. "precap_rough_margin_time": 0.015,
+13. "precap_fine_margin_time": 0.00005,
+14. "video_export": false
 
 ## Example Usage in Our Research
 
