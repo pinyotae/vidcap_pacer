@@ -28,10 +28,10 @@ Although we pace frame arrival as ideally as possible, there is much challenge t
 
 ## Installation
 We provide a binary for Windows 11 64 bit. Please follow the steps below.
-1. Download opencvworld libary.
+1. Download pre-built opencvworld libary.
 2. Download VidCap Pacer executable. Put it in the same folder.
-3. Download a video capture settings JSON file.
-4. Install VC++ distributable Runtime for VC17 (Visual C++ 2022) 64 bits.
+3. Download a video capture settings JSON file. This is a program parameter template that you will edit before real use.
+4. Install [VC++ redistributable Runtime for VC17 (Visual C++ 2022) 64 bits](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 
 ## How to Use
 1. Edit the settings JSON file. Usually, you will change the following arguments:
@@ -40,17 +40,18 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
    <br>target_frame_per_sec
    <br>record_time_sec
    If you have multiple cameras, you may need to set camera_id to the one you want. It is an integer starts from 0. Most likely, your preferred camera will have ID 0, 1, or 2.
-2. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ``VidCapPacer video_capture_settings.json```.
+   Please read the next section for full detail of VidCap Pacer JSON arguments.
+3. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ```VidCapPacer video_capture_settings.json```.
 
 ## VidCap Pacer JSON Arguments
 
 
-## Example Usage
+## Example Usage in Our Research
 
 ## Used Tools (Dependency)
-1. OpenCV
+1. OpenCV 4.10
 2. JSON for Modern C++
-3. {fmt}
+3. {fmt} 10.2.0
 4. Boost library 1.85.0
 5. OpenMP
 
