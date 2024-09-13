@@ -35,9 +35,15 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 
 ## How to Use
 1. Edit the settings JSON file. Usually, you will change the following arguments:
-   <br>series_name: output_folder
-   <br>
+   <br>series_name
+   <br>output_folder
+   <br>target_frame_per_sec
+   <br>record_time_sec
+   If you have multiple cameras, you may need to set camera_id to the one you want. It is an integer starts from 0. 
 3. 
+
+## VidCap Pacer JSON Arguments
+
 
 ## Example Usage
 
@@ -45,8 +51,14 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 1. OpenCV
 2. JSON for Modern C++
 3. {fmt}
-4. Boost library
+4. Boost library 1.85.0
 5. OpenMP
+
+## FAQ
+1. **Q**: Why do you use a JSON file to set program arguments, instead of a command line?
+   <br>**A**: There are many arguments that you may need to set, the command line will be so long that it is hard to read. On top of that, a JSON file provides a self documentation, making your video capturing work systematically reproducible. We find that it is helpful to consistently create a dataset.
+2.**Q**: Based on your source code, it seems that threading and synchonization are done with C++ standard library (e.g., <thread>). Why do you need OpenMP here?
+<br>**A**: Earlier we implemented this program with OpenMP, but later on, we switched to the standard library as recent compilers provide better support. However, we still rely on OpenMP for high resolution wall clock time (omp_get_wtime). We know that chrono can do this job, but chrono functions are changing in recent C++ compilers, especially the count function. So, we stick with OpenMP for high resolution timing for now until C++ 20 gets better support across major compiler vendors.    
 
 ## Citation
 If you VidCap Pacer in your work, please cite our following work.
