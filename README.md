@@ -57,7 +57,8 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 ## FAQ
 1. **Q**: Why do you use a JSON file to set program arguments, instead of a command line?
    <br>**A**: There are many arguments that you may need to set, the command line will be so long that it is hard to read. On top of that, a JSON file provides a self documentation, making your video capturing work systematically reproducible. We find that it is helpful to consistently create a dataset.
-2.**Q**: Based on your source code, it seems that threading and synchonization are done with C++ standard library (e.g., <thread>). Why do you need OpenMP here?
+   
+2. **Q**: Based on your source code, it seems that threading and synchonization are done with C++ standard library (e.g., <thread>). Why do you need OpenMP here?
 <br>**A**: Earlier we implemented this program with OpenMP, but later on, we switched to the standard library as recent compilers provide better support. However, we still rely on OpenMP for high resolution wall clock time (omp_get_wtime). We know that chrono can do this job, but chrono functions are changing in recent C++ compilers, especially the count function. So, we stick with OpenMP for high resolution timing for now until C++ 20 gets better support across major compiler vendors.    
 
 ## Citation
