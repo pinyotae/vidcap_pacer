@@ -28,8 +28,8 @@ Although we pace frame arrival as ideally as possible, there is much challenge t
 
 ## Installation
 We provide a binary for Windows 11 64 bit. Please follow the steps below.
-1. Download pre-built opencvworld libary.
-2. Download VidCap Pacer executable. Put it in the same folder.
+1. Download pre-built opencv_world libary.
+2. Download VidCap Pacer executable. Put it in the same folder as the opencv_world library.
 3. Download a video capture settings JSON file. This is a program parameter template that you will edit before real use.
 4. Install [VC++ redistributable Runtime for VC17 (Visual C++ 2022) 64 bits](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 
@@ -40,24 +40,24 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
    <br>target_frame_per_sec
    <br>record_time_sec
    If you have multiple cameras, you may need to set camera_id to the one you want. It is an integer starts from 0. Most likely, your preferred camera will have ID 0, 1, or 2.
-   Please read the next section for full detail of VidCap Pacer JSON arguments.
+   Please read the next section for full detail of VidCap Pacer JSON arguments. You may need to adjust precap_rough_margin_time and precap_fine_margin_time to minimize frame grabbing time error.
 3. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ```VidCapPacer video_capture_settings.json```.
 
 ## VidCap Pacer JSON Arguments
 1. "series_name" (string): the name of frame series. Output files will be prefixed with series_name.
 2. "output_folder" (string): folder to store image frames, video, and reports.
 3. "time_stamp_report_file_name" (string): base file name of a time stamp report showing when each frame is grabbed and retrieved. This will help analyze the frame timing.
-4. "time_deviation_report_file_name": base file name of a deviation time when compared with ideal frame grabbing time.
-5. "series_name_report_prefix": true,
-6. "io_buffer_length": 1000,
+4. "time_deviation_report_file_name" (string): base file name of a deviation time when compared with ideal frame grabbing time. This tells you how much the frame grabbing time error for each frame is. At the end of the file, it shows the average time error (referred to as time deviation).
+5. "series_name_report_prefix" (boolean): if true, the the two report files above will be prefixed by the series name. For example, if the series_name = "demo" and time_stamp_report_file_name = "frame_time_stamp.tab" and series_name_report_prefix = true, the final time stamp report file name will be "demo_frame_time_stamp.tab."
+6. "io_buffer_length" (integer): the number of frames in a circular frame buffer. If these buffering frames >= the frames needed for the entire video series, the frame saving thread will not be created. Instead, once all frames are captured to the buffer, the frame saving function will be called to save the frames. This ensures that the I/O thread will not compete with the frame grabbing thread for any resource.
 	
-7. "camera_id": 0,
-8. "frame_height": 480,
-9. "frame_width": 640,
-10. "target_frame_per_sec": 15,
-11. "record_time_sec": 60,
-12. "precap_rough_margin_time": 0.015,
-13. "precap_fine_margin_time": 0.00005,
+7. "camera_id" (non-negative integer): the camera ID regarding to the OpenCV library.
+8. "frame_height" (positive integer): frame height (pixels),
+9. "frame_width" (positive integer): frame width (pixels),
+10. "target_frame_per_sec" (positive real number): the number of frames per seconds that you expect. The program will send this frame rate to the capturing device. In some cases, the device may explicitly try to use another frame rate. In this case, VidCap Pacer will show a warning message and you can abort or continue the operation.
+11. "record_time_sec" (positive integer): the length of video recording (seconds),
+12. "precap_rough_margin_time" (positive real number): The time a frame grabbing thread will awake before the ideal frame grabbing time in second unit. Normally, if the frame rate is not too high, a frame grabbing thread will be ready for issuing a frame grabbing command long before the ideal frame grabbing time (say 20 millisecond). Therefore, the thread sleeps to avoid unnecessary CPU utilization. The thread tries to exit the sleep state before the ideal time to avoid delay caused by thread scheduling. For example, if you set this value to 0.015 and the thread arrives a check point just before the frame grabbing command 20 milliseconds early, the thread will sleep until 15 milliseconds before the ideal time. Then, VidCap Pacer will use a loop spinning to wait for an ideal time.
+13. "precap_fine_margin_time" (non-negative real number): The time a frame grabbing thread will leave a spinning waiting loop before the ideal time. For example, if this time is set to 0.00005, VidCap Pacer will exit the loop 0.05 millisecond before the ideal time. This time should be calibrate to suit the machine used for video capture. If your CPU is fast, the margin time should be small. If your CPU is slow, the margin time should not be too small.
 14. "video_export": false
 
 ## Example Usage in Our Research
