@@ -41,7 +41,8 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
    <br>record_time_sec
    If you have multiple cameras, you may need to set camera_id to the one you want. It is an integer starts from 0. Most likely, your preferred camera will have ID 0, 1, or 2.
    Please read the next section for full detail of VidCap Pacer JSON arguments. You may need to adjust precap_rough_margin_time and precap_fine_margin_time to minimize frame grabbing time error.
-3. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ```VidCapPacer video_capture_settings.json```.
+2. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ```VidCapPacer video_capture_settings.json```.
+3. Observe the average grabbing time error, referred to as deviation time, at the end of the report. Try adjusting some parameters to minimize the error.
 
 ## VidCap Pacer JSON Arguments
 1. "series_name" (string): the name of frame series. Output files will be prefixed with series_name.
@@ -58,9 +59,13 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 11. "record_time_sec" (positive integer): the length of video recording (seconds),
 12. "precap_rough_margin_time" (positive real number): The time a frame grabbing thread will awake before the ideal frame grabbing time in second unit. Normally, if the frame rate is not too high, a frame grabbing thread will be ready for issuing a frame grabbing command long before the ideal frame grabbing time (say 20 millisecond). Therefore, the thread sleeps to avoid unnecessary CPU utilization. The thread tries to exit the sleep state before the ideal time to avoid delay caused by thread scheduling. For example, if you set this value to 0.015 and the thread arrives a check point just before the frame grabbing command 20 milliseconds early, the thread will sleep until 15 milliseconds before the ideal time. Then, VidCap Pacer will use a loop spinning to wait for an ideal time.
 13. "precap_fine_margin_time" (non-negative real number): The time a frame grabbing thread will leave a spinning waiting loop before the ideal time. For example, if this time is set to 0.00005, VidCap Pacer will exit the loop 0.05 millisecond before the ideal time. This time should be calibrate to suit the machine used for video capture. If your CPU is fast, the margin time should be small. If your CPU is slow, the margin time should not be too small.
-14. "video_export": false
+14. "video_export" (boolean): If true, once all frames are separately saved as image files, they will be read to create a single video file. The image files are preserved. This process may take a long while to finish if the recording time is long.
 
 ## Example Usage in Our Research
+We applied an earlier version of VidCap Pacer in our research on measuring the heart rate from a non-facial skin. We found that without a precise frame pacing during video capture, the method could not produce an accurate output, especially for a common light source such as a ceiling fluoresence tube and LED downlight. The challenge of heart-rate measuring on a non-facial skin is mainly based on a weaker vital sign when compare a facial skin. Therefore, minimizing errors in every step is essential to obtain an acceptable outcome. If you are interested in this application, please check our paper for more detail [Link to IEEEXplore](https://ieeexplore.ieee.org/document/10440333).
+```
+N. Tangjui and P. Taeprasartsit, "Robust Method for Non-Contact Vital Sign Measurement in Videos Acquired in Real-World Light Settings From Skin Less Affected by Blood Perfusion," in IEEE Access, vol. 12, pp. 28582-28597, 2024, doi: 10.1109/ACCESS.2024.3367775.
+```
 
 ## Used Tools (Dependency)
 1. OpenCV 4.10
