@@ -64,7 +64,9 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 ## Example Usage in Our Research
 We applied an earlier version of VidCap Pacer in our research on measuring the heart rate from a non-facial skin. We found that without a precise frame pacing during video capture, the method could not produce an accurate output, especially for a common light source such as a ceiling fluoresence tube and LED downlight. The challenge of heart-rate measuring on a non-facial skin is mainly based on a weaker vital sign when compare a facial skin. Therefore, minimizing errors in every step is essential to obtain an acceptable outcome. If you are interested in this application, please check our paper for more detail [Link to IEEEXplore](https://ieeexplore.ieee.org/document/10440333).
 ```
-N. Tangjui and P. Taeprasartsit, "Robust Method for Non-Contact Vital Sign Measurement in Videos Acquired in Real-World Light Settings From Skin Less Affected by Blood Perfusion," in IEEE Access, vol. 12, pp. 28582-28597, 2024, doi: 10.1109/ACCESS.2024.3367775.
+N. Tangjui and P. Taeprasartsit, 
+<br>"Robust Method for Non-Contact Vital Sign Measurement in Videos Acquired in Real-World Light Settings From Skin Less Affected by Blood Perfusion," 
+<br> in IEEE Access, vol. 12, pp. 28582-28597, 2024, doi: 10.1109/ACCESS.2024.3367775.
 ```
 
 ## Used Tools (Dependency)
