@@ -53,8 +53,8 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
 6. "io_buffer_length" (integer): the number of frames in a circular frame buffer. If these buffering frames >= the frames needed for the entire video series, the frame saving thread will not be created. Instead, once all frames are captured to the buffer, the frame saving function will be called to save the frames. This ensures that the I/O thread will not compete with the frame grabbing thread for any resource.
 	
 7. "camera_id" (non-negative integer): the camera ID regarding to the OpenCV library.
-8. "frame_height" (positive integer): frame height (pixels),
-9. "frame_width" (positive integer): frame width (pixels),
+8. "frame_height" (positive integer): frame height (pixels).
+9. "frame_width" (positive integer): frame width (pixels).
 10. "target_frame_per_sec" (positive real number): the number of frames per seconds that you expect. The program will send this frame rate to the capturing device. In some cases, the device may explicitly try to use another frame rate. In this case, VidCap Pacer will show a warning message and you can abort or continue the operation.
 11. "record_time_sec" (positive integer): the length of video recording (seconds),
 12. "precap_rough_margin_time" (positive real number): The time a frame grabbing thread will awake before the ideal frame grabbing time in second unit. Normally, if the frame rate is not too high, a frame grabbing thread will be ready for issuing a frame grabbing command long before the ideal frame grabbing time (say 20 millisecond). Therefore, the thread sleeps to avoid unnecessary CPU utilization. The thread tries to exit the sleep state before the ideal time to avoid delay caused by thread scheduling. For example, if you set this value to 0.015 and the thread arrives a check point just before the frame grabbing command 20 milliseconds early, the thread will sleep until 15 milliseconds before the ideal time. Then, VidCap Pacer will use a loop spinning to wait for an ideal time.
