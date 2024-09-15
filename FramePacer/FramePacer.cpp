@@ -1,6 +1,7 @@
 /**
-  The main function of VidCap(frame) Pacer
-  
+  The main implementation of VidCap (frame) Pacer to make frame capturing time as ideally as possible.
+  More detail and source code is available at https://github.com/pinyotae/video_frame_pacer/blob/main/README.md
+
   MIT License
   Copyright (c) 2024 Pinyo Taeprasartsit
  */ 
@@ -38,26 +39,49 @@ void readJsonVidCaptureSettings(string configPath);
 void printCaptureSettings();
 
 /* Program arguments :
-	1. camID (int): Camera ID (video capture device) of the machine.
-	2. frameHeight (int): a height of each video frame
-	3. frameWidth (int): a width of each video frame
-	4. targetFPS (double): a target frame rate (frames per second). 
-		Note that your video capture device may not obey this frame rate, but this tool 
-		tries to time each frame capture at a expected time stamp as precisely as possible.
-		As long as the target frame rate and resolution are not too high, this tool may
-		be able to achieve the target frame rate we specify.
-	5. numSeconds: duration of video capturing in second unit.
-	6. I/O buffer size: the number of video frames buffered before writing to storage. 
-	    If your system is highly affected by I/O and cannot keep frame interval as precise
-		  as you need because of I/O, you may increase this size high enough to cover all
-		  frames that will be captured during the time interval. Then, set 'saveOnce' to true.
-	    Note: the I/O itself may not time consuming per se, but encoding an output image may
-		  be a culprit if you get an I/O performance issue.
-	. dryRun (boolean): if true, captureed video frames will not be saved to a disk. 
-	    This helps investigate performance issues, especially those involving I/O.
-	. saveVideo (boolean):
-	. saveLosslessFrames (boolean):
-	. saveOnce (boolean):
+  1. "series_name" (string): the name of frame series. Output files will be prefixed with series_name.
+  2. "output_folder" (string): folder to store image frames, video, and reports.
+  3. "time_stamp_report_file_name" (string): base file name of a time stamp report showing when each frame is 
+	grabbed and retrieved. This will help analyze the frame timing.
+
+  4. "time_deviation_report_file_name" (string): base file name of a deviation time when compared with ideal 
+	frame grabbing time. This tells you how much the frame grabbing time error for each frame is. At the end of 
+	the file, it shows the average time error (referred to as time deviation).
+
+  5. "series_name_report_prefix" (boolean): if true, the the two report files above will be prefixed by the 
+	series name. For example, if the series_name = "demo" and time_stamp_report_file_name = "frame_time_stamp.tab" 
+	and series_name_report_prefix = true, the final time stamp report file name will be "demo_frame_time_stamp.tab."
+  6. "io_buffer_length" (integer): the number of frames in a circular frame buffer. If these buffering frames >= the 
+	frames needed for the entire video series, the frame saving thread will not be created. Instead, once all frames 
+	are captured to the buffer, the frame saving function will be called to save the frames. This ensures that the 
+	I/O thread will not compete with the frame grabbing thread for any resource.
+
+  7. "camera_id" (non-negative integer): the camera ID regarding to the OpenCV library.
+  8. "frame_height" (positive integer): frame height (pixels).
+  9. "frame_width" (positive integer): frame width (pixels).
+
+  10. "target_frame_per_sec" (positive real number): the number of frames per seconds that you expect. The program 
+	will send this frame rate to the capturing device. In some cases, the device may explicitly try to use another 
+	frame rate. In this case, VidCap Pacer will show a warning message and you can abort or continue the operation.
+
+  11. "record_time_sec" (positive integer): the length of video recording (seconds).
+
+  12. "precap_rough_margin_time" (positive real number): The time a frame grabbing thread will awake before the ideal 
+	frame grabbing time in second unit. Normally, if the frame rate is not too high, a frame grabbing thread will be 
+	ready for issuing a frame grabbing command long before the ideal frame grabbing time (say 20 millisecond). 
+	Therefore, the thread sleeps to avoid unnecessary CPU utilization. The thread tries to exit the sleep state before 
+	the ideal time to avoid delay caused by thread scheduling. For example, if you set this value to 0.015 and the 
+	thread arrives a check point just before the frame grabbing command 20 milliseconds early, the thread will sleep 
+	until 15 milliseconds before the ideal time. Then, VidCap Pacer will use a loop spinning to wait for an ideal time.
+
+  13. "precap_fine_margin_time" (non-negative real number): The time a frame grabbing thread will leave a spinning 
+	waiting loop before the ideal time. For example, if this time is set to 0.00005, VidCap Pacer will exit the loop 
+	0.05 millisecond before the ideal time. This time should be calibrate to suit the machine used for video capture. 
+	If your CPU is fast, the margin time should be small. If your CPU is slow, the margin time should not be too small.
+
+  14. "video_export" (boolean): If true, once all frames are separately saved as image files, they will be read to 
+	create a single video file. The image files are preserved. This process may take a long while to finish if the 
+	recording time is long.
 */
 
 string seriesName = "demo_";
@@ -87,8 +111,6 @@ double precapFineMarginTime = 0.00005;
 
 bool videoExport = false;
 
-//std::atomic<int> bufferEndIndex(0);
-//std::atomic<int> bufferStartIndex(0);
 int bufferEndIndex = 0;
 int bufferStartIndex = 0;
 int framesNotWritten = 0;
@@ -144,8 +166,8 @@ int main(int argc, char* argv[]) {
 ///   rate to 25 Hz, not 30 Hz, to avoid flickering. However, your video capturing device
 ///   may stick to 30 Hz.
 /// </summary>
-/// <param name="targetFPS"></param>
-/// <param name="actualFPS"></param>
+/// <param name="targetFPS">Target frame rate (frames per second) that the user asks for.</param>
+/// <param name="actualFPS">Actual frame rate that the capturing device will use.</param>
 void checkTargetFpsAgainstActualFps(const double targetFPS, const double actualFPS) {
 	cout << "Actual frame rate = " << actualFPS << " fps\n";
 	if (abs(targetFPS - actualFPS) > 0.01) {
@@ -190,16 +212,23 @@ shrptr_VideoCapture initVideoCapture(const int camID, const int frameHeight,
 }
 
 
+/// <summary>
 /// To pace frame arrival, we compute the time our application should wait before
 ///   issuing the next frame grab command.
 /// The wait time end a little bit earlier by marginTime.
 /// The early end of wait time is to compensate the incoming work before the actual
 ///   video capturing. We should calibrate the marginTime to make frame pacing close
 ///   to the ideal as much as possible.
-int waitForNextGrab(int nextFrameID, double timeBetweenFrame, double time0) {
+/// </summary>
+/// <param name="nextFrameID">Frame ID of the frame to be grabbed next.</param>
+/// <param name="idealTimeBetweenFrame">Ideal time between two consecutive frames. 
+///   The frame ID and this ideal time are used to compute the ideal time for next frame grab.</param>
+/// <param name="time0">Reference time at the beginning of the first frame interval.</param>
+/// <returns></returns>
+int waitForNextGrab(int nextFrameID, double idealTimeBetweenFrames, double time0) {
 	double currTime = omp_get_wtime();
 	double elapsedTime = currTime - time0;
-	double nextTime = nextFrameID * timeBetweenFrame;
+	double nextTime = nextFrameID * idealTimeBetweenFrames;
   
 	// Put thread to sleep for precap rough margin time.
 	int waitTime = -1;
@@ -214,7 +243,6 @@ int waitForNextGrab(int nextFrameID, double timeBetweenFrame, double time0) {
 	while (nextTimeAbsolute - omp_get_wtime() > precapFineMarginTime) {
 		continue;
 	}
-
 	return waitTime;
 }
 
@@ -269,7 +297,7 @@ void printCaptureSettings() {
 }
 
 
-void prepareEmptyFrames(std::vector<cv::Mat>& frames, const int height,
+void prepareBufferFrames(std::vector<cv::Mat>& frames, const int height,
 		const int width) {
 	saveBuffer = cv::Mat(height, width, CV_8UC3);
 	for (int frameID = 0; frameID < ioBufferLength; ++frameID) {
@@ -280,7 +308,7 @@ void prepareEmptyFrames(std::vector<cv::Mat>& frames, const int height,
 
 /// Retrieve a frame and store it in a frame array. Then, compute an elapsed time
 ///   based on the reference time0.
-/// @return elapsed time from the beginning of processing (time0).
+/// <returns>Elapsed time from the beginning of processing (time0).</return>
 double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames, 
 		int frameID) {
 	cap->retrieve(frames.at(frameID));
@@ -292,8 +320,13 @@ double pushFrameToMat(shrptr_VideoCapture cap, double time0, vector<Mat>& frames
 }
 
 
+/// <summary>
+/// Save a frame in the buffer to storage and handle buffer indices. 
+/// This is one of the core functions of an I/O thread.
+/// </summary>
+/// <param name="frameID">ID of a frame to be saved.</param>
+/// <param name="frames">Pointer to a frame buffer.</param>
 void writeFrameToImageFile(int frameID, vector<Mat>* frames) {
-	//std::lock_guard<std::mutex> lock(*mutexVid);
 	string imgPath = fmt::format(imgFileFormatStr, outputFolder, seriesName, frameID);
 
 	writeMutex.lock(); {
@@ -307,9 +340,18 @@ void writeFrameToImageFile(int frameID, vector<Mat>* frames) {
 }
 
 
+/// <summary>
+/// Retrieve a frame from a capturing device, place it to the buffer, and handle buffer indices.
+/// This is one of the core functions of a frame grabbing thread. Note that the frame is grabbed
+///   earlier. This function retrieves the grabbed data from the device to the buffer.
+/// </summary>
+/// <param name="cap">Shared pointer to the capturing device.</param>
+/// <param name="time0">Reference time at the beginning of the first frame interval.</param>
+/// <param name="frames">Pointer to a frame buffer.</param>
+/// <param name="frameID">ID of a frame to be retrieved.</param>
+/// <returns>Elapsed time from the beginning of processing (time0).</returns>
 double pushFrameToMatCircularBuffer(shrptr_VideoCapture cap, double time0,
-		vector<Mat>& frames, int frameID) 
-{
+		vector<Mat>& frames, int frameID) {
 	writeMutex.lock(); {
 		if ((bufferEndIndex + 1) % ioBufferLength == bufferStartIndex) {
 			printf("Error: I/O buffer is full.\n");
@@ -342,15 +384,19 @@ void saveFramesThd(vector<Mat>* frames) {
 }
 
 
-// Report the time stamp of each frame to a file.
-void reportTimeStamps(vector<double>& grabTime, vector<double>& retrieveTime) {
+/// <summary>
+/// Report the time stamp of each frame to a file.
+/// </summary>
+/// <param name="grabTimeStamps">Reference to a vector storing time stamp for each frame grabbing.</param>
+/// <param name="retrieveTime">Pointer to a vector storing frame retrieval time stamps.</param>
+void reportTimeStamps(vector<double>& grabTimeStamps, vector<double>& retrieveTimeStamps) {
 	string timeStampPath = outputFolder + "/" + timeStampReportFileName;
 	cout << "\nSaving the time stamp of each frame to " << timeStampPath << "\n";
 	ofstream reportFile(timeStampPath);
 
 	reportFile << "FrameID\tGrabTime(s)\tRetrievalTime(s)\n";
-	for (int i = 0; i < grabTime.size(); ++i) {
-		reportFile << fmt::format("{}\t{}\t{}\n", i + 1, grabTime.at(i), retrieveTime.at(i));
+	for (int i = 0; i < grabTimeStamps.size(); ++i) {
+		reportFile << fmt::format("{}\t{}\t{}\n", i + 1, grabTimeStamps.at(i), retrieveTimeStamps.at(i));
 		if (i % 100 == 0)  // Print a dot for each 100 lines saved
 			printf(".");
 	}
@@ -389,11 +435,11 @@ void exportAllImages(vector<Mat>& frames) {
 
 /// <summary>
 ///  Export a saved image sequence to a video. The method loads images from storage and
-///  put them together as a video.
+///    put them together as a video.
 /// </summary>
-/// <param name="frames"></param>
-/// <param name="numFrames"></param>
-/// <param name="framesPerSec"></param>
+/// <param name="frames">Reference to the frame buffer vector.</param>
+/// <param name="numFrames">The number of frames in the recording sequence.</param>
+/// <param name="framesPerSec">Frame rate (frames per second, fps).</param>
 void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSec) {
 	cout << "\nExporting a video from a saved image sequence." << endl;
 	double t0 = omp_get_wtime();
@@ -402,6 +448,7 @@ void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSe
 	VideoWriter vidWriter(videoPath,
 		cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
 		framesPerSec, cv::Size(frameWidth, frameHeight), true);
+
 	Mat vidFrame = cv::Mat(frameHeight, frameWidth, CV_8UC3);
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
 		vidWriter << cv::imread(fmt::format(imgFileFormatStr, outputFolder, seriesName, frameID));
@@ -412,9 +459,14 @@ void exportVideo(vector<Mat>& frames, const int numFrames, const int framesPerSe
 }
 
 
-// The first few frames of grabbing and retrieving usually involves many initialization 
-//   process.  Therefore, it will be more time consuming than usual. We will drop a few 
-//   frames, say 5, and start the process from the sixth.
+/// <summary>
+/// The first few frames of grabbing and retrieving usually involves many initialization
+///   process. It will be more time consuming than usual and frame times significantly vary. 
+///   Therefore, we will drop a few frames, say 5, and start the process from the sixth.
+/// </summary>
+/// <param name="cap">Shared pointer to the capturing device.</param>
+/// <param name="dummyFrame">A dummy frame for data retrieval. 
+///   You may use the first frame in the buffer for this.</param>
 void warmUpGrabbingAndRetrieving(shrptr_VideoCapture cap, Mat dummyFrame) {
 	for (int i = 0; i < 5; ++i) {
 		cap->grab();
@@ -423,7 +475,14 @@ void warmUpGrabbingAndRetrieving(shrptr_VideoCapture cap, Mat dummyFrame) {
 }
 
 
-void reportGrabTimeAndDeviation(const int numFrames, const double timeBetweenFrames,
+/// <summary>
+/// Report grabbing times and their deviation from the ideal ones of all frames.
+/// </summary>
+/// <param name="numFrames">The number of frames in the recording sequence.</param>
+/// <param name="idealTimeBetweenFrames">Ideal time between two consecutive frames.</param>
+/// <param name="grabTimeStamps">Reference to a vector storing time stamp for each frame grabbing.</param>
+/// <param name="waitTimes">Reference to a vector storing wait time for each frame.</param>
+void reportGrabTimeAndDeviation(const int numFrames, const double idealTimeBetweenFrames,
 		vector<double>& grabTimeStamps, vector<int>& waitTimes) {
 	string reportPath = outputFolder + "/" + timeDeviationReportFileName;
 	cout << "\nSaving deviation of frame arrival time to " << reportPath << endl;
@@ -434,8 +493,8 @@ void reportGrabTimeAndDeviation(const int numFrames, const double timeBetweenFra
 	double timeDiffSum = 0;
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
 		double grabTime = grabTimeStamps.at(frameID);
-		double frameStartTime = timeBetweenFrames * frameID;
-		double expectedTime = (timeBetweenFrames * (frameID + 1));
+		double frameStartTime = idealTimeBetweenFrames * frameID;
+		double expectedTime = (idealTimeBetweenFrames * (frameID + 1));
 		double timeDiff = (grabTime - expectedTime) * 1000;
 		reportFile << fmt::format("{:3d}\t{:5.2f}\t{:2d}\t{:.2f}\n", frameID + 1, 
 			(grabTime - frameStartTime) * 1000, waitTimes.at(frameID), timeDiff);
@@ -453,17 +512,27 @@ void reportGrabTimeAndDeviation(const int numFrames, const double timeBetweenFra
 }
 
 
+/// <summary>
+/// The loop of a video capture thread performing three main tasks: frame grabbing, pushing grabbed frame to 
+///   the buffer, and waiting for an ideal frame grabbing time.
+/// </summary>
+/// <param name="cap">Shared pointer to the capturing device.</param>
+/// <param name="frames"></param>
+/// <param name="numFrames">The number of frames in the recording sequence.</param>
+/// <param name="idealTimeBetweenFrames">Ideal time between two consecutive frames.</param>
+/// <param name="grabTimeStamps">Pointer to a vector storing frame grabbing time stamps.</param>
+/// <param name="retrieveTimeStamps">Pointer to a vector storing frame retrieval time stamps.</param>
+/// <param name="waitTimes">Pointer to a vector storing wait time for each frame.</param>
 void grabPushWaitThdLoop(shrptr_VideoCapture cap, vector<Mat>* frames, 
-		const int numFrames, const double timeBetweenFrames, 
+		const int numFrames, const double idealTimeBetweenFrames, 
 		vector<double>* grabTimeStamps, vector<double>* retrieveTimeStamps, 
-		vector<int>* waitTimes)
-{
+		vector<int>* waitTimes) {
 	double time0 = omp_get_wtime();
 	for (int frameID = 0; frameID < numFrames; ++frameID) {
 		// Video frame is captured when grab is called. So, we compute the wait time
 		//   right before we call grab.	For example, at 30 fps, the first frame should be captured
 		//   at about t = 0.0333 second.
-		int waitTime = waitForNextGrab(frameID + 1, timeBetweenFrames, time0);
+		int waitTime = waitForNextGrab(frameID + 1, idealTimeBetweenFrames, time0);
 		const double grabTimeStamp = omp_get_wtime() - time0;
 		cap->grab();  // Video frame is stored in a buffer, waiting for retrieval to RAM.
 		grabTimeStamps->push_back(grabTimeStamp);
@@ -475,27 +544,33 @@ void grabPushWaitThdLoop(shrptr_VideoCapture cap, vector<Mat>* frames,
 }
 
 
-void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrames,
-	const int numFrames, const int framesPerSec)
-{
+/// <summary>
+/// The core mechanism of VidCap Pacer.
+/// </summary>
+/// <param name="cap">Shared pointer to the capturing device.</param>
+/// <param name="idealTimeBetweenFrames">Ideal time between two consecutive frames.</param>
+/// <param name="numFrames">The number of frames in the recording sequence.</param>
+/// <param name="framesPerSec">Frame rate (frames per second, fps)</param>
+void captureToMemorySpace(shrptr_VideoCapture cap, const double idealTimeBetweenFrames,
+	const int numFrames, const int framesPerSec) {
 	vector<Mat> frames(ioBufferLength);  // Use parameter numFrames if all to be stored.
 	const int frameHeight = (int)cap->get(cv::CAP_PROP_FRAME_HEIGHT);
 	const int frameWidth = (int)cap->get(cv::CAP_PROP_FRAME_WIDTH);
-	prepareEmptyFrames(frames, frameHeight, frameWidth);
+	prepareBufferFrames(frames, frameHeight, frameWidth);
 	warmUpGrabbingAndRetrieving(cap, frames.at(0));
 	
 	vector<double> grabTimeStamps;
 	vector<double> retrieveTimeStamps;
 	vector<int> waitTimes;
 	
-	// Start a thread for frame grabbing
+	// Start a frame grabbing thread 
 	std::thread grabThread(grabPushWaitThdLoop, cap, &frames, numFrames, 
-		timeBetweenFrames, &grabTimeStamps, &retrieveTimeStamps, &waitTimes);
+		idealTimeBetweenFrames, &grabTimeStamps, &retrieveTimeStamps, &waitTimes);
 
-	// Start a thread for saving video frames if I/O buffer cannot contain all frames
+	// Start a thread for saving video frames if I/O buffer cannot contain the entire expected sequence.
 	if (numFrames > ioBufferLength) {
 		std::thread frameSavingThread(saveFramesThd, &frames);
-		frameSavingThread.join();  // Synchronize within the loop
+		frameSavingThread.join();
 	}	
 
 	grabThread.join();
@@ -503,7 +578,7 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 	reportTimeStamps(grabTimeStamps, retrieveTimeStamps);
 
 	// If the buffer can hold the entire set of grabbed frames, we will write the frames
-	//   when all frames are available in the buffer.
+	//   when all frames are available in the buffer. The I/O thread is not created in this case.
 	if (numFrames <= ioBufferLength) {
 		exportAllImages(frames);
 	}
@@ -511,6 +586,6 @@ void captureToMemorySpace(shrptr_VideoCapture cap, const double timeBetweenFrame
 	if(videoExport)
 		exportVideo(frames, numFrames, framesPerSec);
 
-	reportGrabTimeAndDeviation(numFrames, timeBetweenFrames, grabTimeStamps, waitTimes);
+	reportGrabTimeAndDeviation(numFrames, idealTimeBetweenFrames, grabTimeStamps, waitTimes);
 }
 
