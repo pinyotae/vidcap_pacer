@@ -1,6 +1,9 @@
 {
   "ExpandedNodes": [
-    ""
+    "",
+    "\\FramePacer",
+    "\\FramePacer\\FramePacer"
   ],
+  "SelectedNode": "\\FramePacer\\json.hpp",
   "PreviewInSolutionExplorer": false
 }
