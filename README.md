@@ -41,7 +41,8 @@ We provide a binary for Windows 11 64 bit. Please follow the steps below.
    <br>record_time_sec
    If you have multiple cameras, you may need to set camera_id to the one you want. It is an integer starts from 0. Most likely, your preferred camera will have ID 0, 1, or 2.
    Please read the next section for full detail of VidCap Pacer JSON arguments. You may need to adjust precap_rough_margin_time and precap_fine_margin_time to minimize frame grabbing time error.
-2. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, ```VidCapPacer video_capture_settings.json```.
+2. Open a terminal (cmd.exe) and run command ```VidCapPacer "path to json config file"```. For example, 
+<br>```VidCapPacer video_capture_settings.json```.
 3. Observe the average grabbing time error, referred to as deviation time, at the end of the report. Try adjusting some parameters to minimize the error.
 
 ## VidCap Pacer JSON Arguments
