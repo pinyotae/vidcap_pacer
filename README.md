@@ -81,12 +81,14 @@ The dataset is available at [Zenodo](https://zenodo.org/records/10020238).
 ## FAQ
 1. **Q: Why do you use a JSON file to set program arguments, instead of command line arguments?**
    <br>**A**: There are many arguments that you may need to set, the command line will be so long that it is hard to read. On top of that, a JSON file provides a self documentation, making your video capturing work systematically reproducible. We find that it is helpful to consistently create a dataset.
-   
-2. **Q**: Based on your source code, it seems that threading and synchonization are done with C++ standard library (e.g., ```<thread>```). Why do you need OpenMP here?
+
+2. **Q: How can we minimize the frame capture time deviation/error?**
+<br>**A**: There is more than one way to do it. You may need to apply one or more methods here. Firstly, you might want to modify precap_rough_margin_time and precap_fine_margin_time parameters and check if you get acceptable time deviation. Secondly, try running VidCap Pacer in a system with 4 or more physical cores so that competition for CPU among threads will be less problematic. The next thing that may be helpful is testing frame recording with 30 to 60 seconds with the buffer length adequate to hold the entire video sequence. For example, for 60 seconds recording with 30 fps, you may set io_buffer_length to 1,800 or higher. This will prevent VidCap Pacer from creating a separate I/O thread. It will initially store everything in the buffer. Then, it will save frames to storage only when frame capturing is fully finished. Lastly, change your camera to a better one. A USB 3 camera usually performs much better in frame timing. It may be more expensive, but it worths buying if you want to create a reliable scientific dataset.
+
+3. **Q: Based on your source code, it seems that threading and synchonization are done with C++ standard library (e.g., ```<thread>```). Why do you need OpenMP here?**
 <br>**A**: Earlier we implemented parallelism in this program with OpenMP, but later on, we switched to the standard library as recent compilers provide better support. However, we still rely on OpenMP for high resolution wall clock time (omp_get_wtime). We know that chrono can do this job, but chrono functions are changing in recent C++ compilers, especially the use of its count function. So, we stick with OpenMP for high resolution timing for now until C++ 20 gets better support across major compiler vendors. On a side note, the first public release of VidCap Pacer was compiled with C++17.
 
-3. **Q**: How can we minimize the frame capture time deviation/error?
-<br>**A**: There is more than one way to do it. You may need to apply one or more methods here. Firstly, you might want to modify precap_rough_margin_time and precap_fine_margin_time parameters and check if you get acceptable time deviation. Secondly, try running VidCap Pacer in a system with 4 or more physical cores so that competition for CPU among threads will be less problematic. The next thing that may be helpful is testing frame recording with 30 to 60 seconds with the buffer length adequate to hold the entire video sequence. For example, for 60 seconds recording with 30 fps, you may set io_buffer_length to 1,800 or higher. This will prevent VidCap Pacer from creating a separate I/O thread. It will initially store everything in the buffer. Then, it will save frames to storage only when frame capturing is fully finished. Lastly, change your camera to a better one. A USB 3 camera usually performs much better in frame timing. It may be more expensive, but it worths buying if you want to create a reliable scientific dataset.
+
 
 ## Citation
 If you VidCap Pacer in your work, please cite our following work.
