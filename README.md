@@ -28,7 +28,7 @@ Although we pace frame arrival as ideally as possible, there is much challenge t
 
 ## Installation
 We provide a binary for Windows 11 64 bit. Please follow the steps below.
-1. Download pre-built opencv_world libary.
+1. Download [pre-built opencv_world libary](https://github.com/pinyotae/video_frame_pacer/releases/tag/OpenCV).
 2. Download VidCap Pacer executable. Put it in the same folder as the opencv_world library.
 3. Download a video capture settings JSON file. This is a program parameter template that you will edit before real use.
 4. Install [VC++ redistributable Runtime for VC17 (Visual C++ 2022) 64 bits](https://aka.ms/vs/17/release/vc_redist.x64.exe).
