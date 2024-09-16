@@ -69,7 +69,7 @@ N. Tangjui and P. Taeprasartsit,
 "Robust Method for Non-Contact Vital Sign Measurement in Videos Acquired in Real-World Light Settings From Skin Less Affected by Blood Perfusion," 
 in IEEE Access, vol. 12, pp. 28582-28597, 2024, doi: 10.1109/ACCESS.2024.3367775.
 ```
-The dataset is available in [Zenodo](https://zenodo.org/records/10020238).
+The dataset is available at [Zenodo](https://zenodo.org/records/10020238).
 
 ## Used Tools (Dependency)
 1. [OpenCV 4.10](https://opencv.org/)
