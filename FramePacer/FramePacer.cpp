@@ -38,7 +38,9 @@ void readJsonVidCaptureSettings(string configPath);
 
 void printCaptureSettings();
 
-/* Program arguments :
+/* Program arguments:
+  We can specify the following arguments in the video capture settings JSON file. The file path is the immediate 
+    argument of the program, and the following arguments are specified in the JSON file.
   1. "series_name" (string): the name of frame series. Output files will be prefixed with series_name.
   2. "output_folder" (string): folder to store image frames, video, and reports.
   3. "time_stamp_report_file_name" (string): base file name of a time stamp report showing when each frame is 
@@ -84,6 +86,9 @@ void printCaptureSettings();
 	recording time is long.
 */
 
+
+// These are variables holding video capture settings specified in a JSON file.
+// Values here are only default examples that will be overwritten by values in the JSON file.
 string seriesName = "demo_";
 string outputFolder = "C:/TestingGround/VideoCapture/Images";
 string imgFileFormatStr;
@@ -111,6 +116,8 @@ double precapFineMarginTime = 0.00005;
 
 bool videoExport = false;
 
+
+// Variables handling frame buffering and saving.
 int bufferEndIndex = 0;
 int bufferStartIndex = 0;
 int framesNotWritten = 0;
